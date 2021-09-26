@@ -1,100 +1,102 @@
-#include <Arduino.h>
-#include "medaillon.h"
+#include <avr/io.h>
+#include <util/delay.h>
+#include <avr/interrupt.h>
+#include <avr/sleep.h>
+#include <avr/wdt.h>
+#define BTN 3
+#define timer_init() (TIMSK |= (1 << OCIE0A))
+#define BTN_HOLD_MS 1000    // Press button for 1 second
 
-//https://www.electronics-lab.com/project/attiny85-push-button-power-switching-software-solution/
-
-uint8_t buffer[64 * 3];
-uint8_t colors_buffer[32];
-uint8_t index = 0;
-uint8_t tmp;
-uint8_t current_frame = 0;
-int delayval = 100;
-
-void setup() {
-  DDRB = 1 << PIN4;
-  for (uint8_t i = 0; i < 64; i++)
-  {
-    colors_buffer[i] = 0;
-  }
-	DDRB &= !(0b00000100);
-	// PCICR |= 0b00000101;
-	PCMSK |= (1 << PCINT3);
+//LED on PB3 (pin2)
+//BUT on PB4 (pin3)
 
 
+enum Device_Status
+{
+    POWER_OFF,
+    RUNNING
+};
+enum Btn_Status
+{
+    BTN_UP,
+    BTN_DOWN,
+    BTN_IGNORE
+};
+void setup()
+{
+    sei();                  // Enable interrupts
+    PORTB |= (1 << BTN);    // Enable PULL_UP resistor
+    GIMSK |= (1 << PCIE);   // Enable Pin Change Interrupts
+    PCMSK |= (1 << BTN);    // Use PCINTn as interrupt pin (Button I/O pin)
+    TCCR0A |= (1 << WGM01); // Set CTC mode on Timer 1
+    TIMSK |= (1 << OCIE0A); // Enable the Timer/Counter0 Compare Match A interrupt
+    TCCR0B |= (1 << CS01);  // Set prescaler to 8
+    OCR0A = 125;            // Set the output compare reg so tops at 1 ms
 }
-
+void power_off()
+{
+    cli();                               // Disable interrupts before next commands
+    wdt_disable();                       // Disable watch dog timer to save power
+    set_sleep_mode(SLEEP_MODE_PWR_DOWN); // Set sleep mode power down
+    sleep_enable();
+    sleep_bod_disable(); // Disable brown-out detector
+    sei();               // Enable interrupts
+    sleep_cpu();
+    sleep_disable();
+}
+volatile unsigned int timer;  // milliseconds counter 
+Btn_Status btn_status;        // Status of the button
+int main()
+{
+    setup();
+    Device_Status status = RUNNING; // Set start ON or OFF when power is connected
+    btn_status = BTN_UP;
+    DDRB |= (1 << DDB4); // Set pin 0 as output
+    for (;;)
+    {
+        if (btn_status == BTN_DOWN)
+        {
+            if (timer > BTN_HOLD_MS) // Check if button has been pressed enough
+            {
+                if (status == RUNNING)
+                    status = POWER_OFF;
+                else
+                {
+                    status = RUNNING;
+                    // setup of the device here if needed;
+                }
+                btn_status = BTN_IGNORE; // If status already changed don't swap it again
+            }
+        }
+        else
+        {
+            if (status) // Is status RUNNING?
+            {
+                /* main code here */
+                PORTB |= (1 << PB4); // Pin 0 ON
+                /* -------------- */
+            }
+            else
+            {
+                PORTB &= ~(1 << PB4); // Pin 0 OFF
+                power_off();
+            }
+        }
+    }
+}
 
 ISR(PCINT0_vect)
 {
-  current_frame = current_frame == 1 ? 0 : 1;
-}
-
-uint8_t colors[16] = {
-  0x000000,
-  0xf44336,
-  0xe81e63,
-  0x9c27b0,
-  0x673ab7,
-  0x3f51b5,
-  0x2196f3,
-  0x00bcd4,
-  0x009688,
-  0x4caf50,
-  0x8bc34a,
-  0xcddc39,
-  0xffeb3b,
-  0xffc107,
-  0xff9800,
-  0xffffff
-};
-
-uint8_t get_color()
-{
-  if (index % 2 == 0)
-  {
-   return ((colors_buffer[index / 2] & 0xF0) >> 4);
-  }
-  else
-  {
-   return (colors_buffer[index / 2] & 0x0F);
-  }
-}
-
-void update_color()
-{
-  tmp = get_color();
-  tmp = tmp >= 15 ? 0 : tmp + 1;
-
-  if (index % 2 == 0)
-  {
-    colors_buffer[index / 2] = (tmp << 4) & (colors_buffer[index / 2] & 0x0F);
-  }
-  else
-  {
-    colors_buffer[index / 2] = (tmp) & (colors_buffer[index / 2] & 0xF0);
-  }
-}
-
-
-void loop() {
-
-  {
-    for (uint8_t i = 0; i < 64; i++)
+    if (!((PINB >> BTN) & 0x01)) // Check if button is down
     {
-        index = i;
-        uint8_t color = get_color();
-        buffer[i * 3] = (color & 0x00FF00) >> 8;
-        buffer[i * 3 + 1] = (color & 0xFF0000) >> 16;
-        buffer[i * 3 + 2] = color & 0x0000FF;
+        btn_status = BTN_DOWN;
+        timer_init();
+        timer = 0;
     }
-  for (uint8_t i = 0; i < 64; i++)
-  {
-
-  }
-
-
-
-    led_send_data(buffer, 64);
-    delay(10);
-  }
+    else
+        btn_status = BTN_UP;
+}
+ISR(TIM0_COMPA_vect)
+{
+    timer++;
 }
