@@ -17,7 +17,7 @@ void led_send_data(uint8_t *pixels, uint16_t pixels_number)
 	lo   = *port & ~mask;
 	next = lo;
 	bit  = 8;
-
+	cli();
 	asm volatile(
 	 "head20:"                   "\n\t" // Clk  Pseudocode    (T =  0)
 	  "st   %a[port],  %[hi]"    "\n\t" // 2    PORT = hi     (T =  2)
@@ -49,4 +49,5 @@ void led_send_data(uint8_t *pixels, uint16_t pixels_number)
 	  : [ptr]    "e" (ptr),
 		[hi]     "r" (hi),
 		[lo]     "r" (lo));
+		sei();
 }
