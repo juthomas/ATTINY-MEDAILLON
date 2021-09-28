@@ -1,13 +1,36 @@
 #include <Arduino.h>
 #include "medaillon.h"
+#include <util/delay.h>
 
 //https://www.electronics-lab.com/project/attiny85-push-button-power-switching-software-solution/
 
-uint8_t buffer[64 * 3];
+uint8_t buffer[64 * 3] = {0};
 uint8_t colors_buffer[4][32];
 uint8_t tmp;
 uint8_t current_frame = 0;
 int delayval = 100;
+
+void external_interrupt()
+{
+  DDRB |= (1<<PB1)|(1<<PB0);     // set PB2 as output(LED)
+  sei();     //enabling global interrupt
+  GIMSK |= (1<<INT0);     // enabling the INT0 (external interrupt) 
+  MCUCR |= (1<<ISC01);    // Configuring as falling edge 
+}
+
+void pin_change_interrupt()
+{
+  DDRB|=(1<<PB0);
+  GIMSK|= (1<<PCIE);
+  PCMSK|=(1<<PCINT1);
+}
+
+static inline void initInterrupt(void)
+{
+	GIMSK |= (1 << PCIE);   // pin change interrupt enable
+	PCMSK |= (1 << PCINT3); // pin change interrupt enabled for PCINT4
+	sei();                  // enable interrupts
+}
 
 void setup() {
 	DDRB = 1 << PIN4;
@@ -18,6 +41,9 @@ void setup() {
 			colors_buffer[u][i] =  (u << 4) + u;
 		}
 	}
+	external_interrupt();
+  	pin_change_interrupt();
+	led_send_data(buffer, 64);
 	// DDRB &= !(0b00000100);
 	// // PCICR |= 0b00000101;
 	// PCMSK |= (1 << PCINT3);
@@ -85,29 +111,32 @@ void update_color(uint8_t index, uint8_t frame)
 	}
 }
 
+volatile uint8_t index = 0;
+
+ISR (INT0_vect)        // Interrupt service routine 
+{
+	//index++;
+  	PORTB ^= (1<<PB1);    // Toggling the PB2 pin 
+}
+
+ISR (PCINT0_vect)        // Interrupt service routine 
+{
+  index++;
+  PORTB ^= (1<<PB0);   // Toggling the PB2 pin 
+}
+
 
 void loop() {
 		static uint8_t frame = 0;
-
-		// for (uint8_t i = 0; i < 32; i++)
-		// {
-		// 	colors_buffer[i] = (current_color << 4) + current_color;
-		// }
 		frame = frame >= 4 ? 0 : frame + 1;
-		for (uint8_t i = 0; i < 64; i++)
-		{
-				// index = i;
-				uint32_t color = get_color(i, frame);
-				buffer[i * 3] = (color & 0x00FF00) >> 8;
-				buffer[i * 3 + 1] = (color & 0xFF0000) >> 16;
-				buffer[i * 3 + 2] = color & 0x0000FF;
-		}
-		// for (uint8_t i = 0; i < (64 * 3); i++)
-		// {
-		// 	buffer[i] = 10;
-		// }
-
-
-		led_send_data(buffer, 64);
+			while(1)
+			{
+				_delay_ms(250);
+				uint32_t color = get_color(index, frame);
+				buffer[index * 3] = (color & 0x00FF00) >> 8;
+				buffer[index * 3 + 1] = (color & 0xFF0000) >> 16;
+				buffer[index * 3 + 2] = color & 0x0000FF;
+				led_send_data(buffer, 64);
+			}
 		delay(1000);
 }
