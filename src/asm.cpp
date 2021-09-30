@@ -1,7 +1,7 @@
 #include "medaillon.h"
 void led_send_data(uint8_t *pixels, uint16_t pixels_number)
 {
-	uint8_t mask = 1 << PIN4;
+	uint8_t mask = 1 << PB0;
 	volatile uint16_t
 	i   = pixels_number * 3; // Loop counter
 	volatile uint8_t
